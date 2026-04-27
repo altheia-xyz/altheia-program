@@ -10,7 +10,7 @@
 
 The on-chain piece of [Altheia](https://altheia.xyz) — the trust + audit layer for AI agents on Solana. This program is a **slim identity registry**: it stores agent identities, policy commitment hashes, and periodic Merkle roots of the off-chain audit log. It does **not** enforce token transfers or hold session keys — that work happens at the [Swig](https://github.com/anagrambuild/swig-wallet) substrate layer, where on-chain scope (per-mint caps, allowed programs, instant revocation) is enforced.
 
-See [SMART_CONTRACT_SRS.md](https://github.com/altheia-xyz/altheia-plan/blob/main/02_SRS/SMART_CONTRACT_SRS.md) for the full specification.
+Full specification lives in the (private) altheia-plan repo.
 
 ## Account model
 
@@ -93,4 +93,3 @@ Apache 2.0 — see [LICENSE](LICENSE).
 ## Related repos
 
 - [altheia-sdk](https://github.com/altheia-xyz/altheia-sdk) — TypeScript SDK + MCP server + framework adapters
-- [altheia-plan](https://github.com/altheia-xyz/altheia-plan) — product specs + design + roadmap (private during build phase)
