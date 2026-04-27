@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: anchor build + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker compose build anchor
+
+      - name: anchor build
+        run: docker compose run --rm anchor anchor build
+
+      - name: cargo fmt --check
+        run: docker compose run --rm anchor cargo fmt --all -- --check
+
+      - name: clippy
+        run: docker compose run --rm anchor cargo clippy --all-targets -- -D warnings
+        continue-on-error: true   # while scaffolding; tighten later
+
+  # TODO (v0.2): integration tests against solana-test-validator

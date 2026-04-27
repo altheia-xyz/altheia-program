@@ -1,0 +1,28 @@
+services:
+  anchor:
+    build: .
+    container_name: altheia-anchor
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+      - cargo-cache:/root/.cargo/registry
+      - target-cache:/workspace/target
+    network_mode: host
+    tty: true
+    stdin_open: true
+
+  validator:
+    build: .
+    container_name: altheia-validator
+    command: solana-test-validator --reset --quiet
+    ports:
+      - "8899:8899"   # JSON RPC
+      - "8900:8900"   # PubSub
+      - "9900:9900"   # Faucet
+    volumes:
+      - validator-data:/root/.config/solana
+
+volumes:
+  cargo-cache:
+  target-cache:
+  validator-data:

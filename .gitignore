@@ -1,0 +1,25 @@
+# Anchor / Rust
+.anchor/
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env
+.env
+.env.local
+test-ledger/
+
+# Wallets / keys (paranoid; never commit keys)
+*-keypair.json
+target/deploy/*-keypair.json

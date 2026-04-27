@@ -1,0 +1,21 @@
+[package]
+name = "identity"
+version = "0.1.0"
+description = "Altheia Identity Program — agent identity registry + audit Merkle anchor"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "identity"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
