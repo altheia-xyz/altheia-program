@@ -1,18 +1,19 @@
 services:
   anchor:
     build: .
+    platform: linux/amd64   # Solana/Agave only ship x86_64-linux binaries; Rosetta emulates on Apple Silicon
     container_name: altheia-anchor
     working_dir: /workspace
     volumes:
       - ./:/workspace
       - cargo-cache:/root/.cargo/registry
-      - target-cache:/workspace/target
     network_mode: host
     tty: true
     stdin_open: true
 
   validator:
     build: .
+    platform: linux/amd64
     container_name: altheia-validator
     command: solana-test-validator --reset --quiet
     ports:
@@ -24,5 +25,4 @@ services:
 
 volumes:
   cargo-cache:
-  target-cache:
   validator-data:

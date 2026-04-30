@@ -1,16 +1,16 @@
 [toolchain]
 anchor_version = "0.31.1"
-solana_version = "2.0.20"
+solana_version = "2.3.0"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-identity = "AthIdentity1111111111111111111111111111111"
+identity = "8PpLVbZzuXsp4GmJoLfd8aMdbZHkvQjh8sA3FmPx2fbv"
 
 [programs.devnet]
-identity = "AthIdentity1111111111111111111111111111111"
+identity = "8PpLVbZzuXsp4GmJoLfd8aMdbZHkvQjh8sA3FmPx2fbv"
 
 [registry]
 url = "https://api.apr.dev"

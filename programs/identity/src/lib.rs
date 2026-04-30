@@ -8,7 +8,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("AthIdentity1111111111111111111111111111111");
+declare_id!("8PpLVbZzuXsp4GmJoLfd8aMdbZHkvQjh8sA3FmPx2fbv");
 
 #[program]
 pub mod identity {
@@ -65,9 +65,126 @@ pub mod identity {
         Ok(())
     }
 
-    // TODO: update_policy_commitment, pause_agent, unpause_agent,
-    //       revoke_agent, archive_agent, commit_audit_root
-    //       (see SMART_CONTRACT_SRS.md §1)
+    pub fn update_policy_commitment(
+        ctx: Context<ManageAgent>,
+        new_policy_commitment: [u8; 32],
+    ) -> Result<()> {
+        let agent = &mut ctx.accounts.agent;
+        require!(
+            agent.status == AgentStatus::Active || agent.status == AgentStatus::Paused,
+            AltheiaError::InvalidStatusTransition
+        );
+        let old = agent.policy_commitment;
+        agent.policy_commitment = new_policy_commitment;
+        agent.last_updated_at = Clock::get()?.unix_timestamp;
+
+        emit!(PolicyUpdated {
+            agent: agent.key(),
+            old_commitment: old,
+            new_commitment: new_policy_commitment,
+            timestamp: agent.last_updated_at,
+        });
+
+        Ok(())
+    }
+
+    pub fn pause_agent(ctx: Context<ManageAgent>) -> Result<()> {
+        let agent = &mut ctx.accounts.agent;
+        require!(agent.status == AgentStatus::Active, AltheiaError::InvalidStatusTransition);
+
+        agent.status = AgentStatus::Paused;
+        agent.last_updated_at = Clock::get()?.unix_timestamp;
+
+        emit!(AgentPaused {
+            agent: agent.key(),
+            timestamp: agent.last_updated_at,
+        });
+
+        Ok(())
+    }
+
+    pub fn unpause_agent(ctx: Context<ManageAgent>) -> Result<()> {
+        let agent = &mut ctx.accounts.agent;
+        require!(agent.status == AgentStatus::Paused, AltheiaError::InvalidStatusTransition);
+
+        agent.status = AgentStatus::Active;
+        agent.last_updated_at = Clock::get()?.unix_timestamp;
+
+        emit!(AgentUnpaused {
+            agent: agent.key(),
+            timestamp: agent.last_updated_at,
+        });
+
+        Ok(())
+    }
+
+    pub fn revoke_agent(ctx: Context<RevokeAgent>, reason_code: u8) -> Result<()> {
+        let agent = &mut ctx.accounts.agent;
+        let operator = &mut ctx.accounts.operator;
+
+        require!(
+            agent.status == AgentStatus::Active || agent.status == AgentStatus::Paused,
+            AltheiaError::InvalidStatusTransition
+        );
+
+        let now = Clock::get()?.unix_timestamp;
+        agent.status = AgentStatus::Revoked;
+        agent.revoked_at = Some(now);
+        agent.last_updated_at = now;
+
+        operator.active_agent_count = operator
+            .active_agent_count
+            .checked_sub(1)
+            .ok_or(AltheiaError::Overflow)?;
+
+        emit!(AgentRevoked {
+            operator: operator.authority,
+            agent: agent.key(),
+            reason_code,
+            timestamp: now,
+        });
+
+        Ok(())
+    }
+
+    pub fn archive_agent(ctx: Context<ManageAgent>) -> Result<()> {
+        let agent = &mut ctx.accounts.agent;
+        require!(agent.status == AgentStatus::Revoked, AltheiaError::InvalidStatusTransition);
+
+        agent.status = AgentStatus::Archived;
+        agent.last_updated_at = Clock::get()?.unix_timestamp;
+
+        emit!(AgentArchived {
+            agent: agent.key(),
+            timestamp: agent.last_updated_at,
+        });
+
+        Ok(())
+    }
+
+    pub fn commit_audit_root(
+        ctx: Context<CommitAuditRoot>,
+        merkle_root: [u8; 32],
+        period_start: i64,
+        period_end: i64,
+    ) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        require!(period_start < period_end, AltheiaError::InvalidPeriod);
+        require!(period_end <= now, AltheiaError::FuturePeriod);
+
+        let operator = &mut ctx.accounts.operator;
+        operator.last_audit_root = merkle_root;
+        operator.last_audit_anchored_at = now;
+
+        emit!(AuditRootCommitted {
+            operator: operator.authority,
+            merkle_root,
+            period_start,
+            period_end,
+        });
+
+        Ok(())
+    }
 }
 
 // ─── Account structs ───────────────────────────────────────────────
@@ -151,6 +268,49 @@ pub struct RegisterAgent<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct ManageAgent<'info> {
+    #[account(
+        mut,
+        constraint = agent.operator == authority.key() @ AltheiaError::Unauthorized,
+    )]
+    pub agent: Account<'info, AgentAccount>,
+
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RevokeAgent<'info> {
+    #[account(
+        mut,
+        constraint = agent.operator == authority.key() @ AltheiaError::Unauthorized,
+    )]
+    pub agent: Account<'info, AgentAccount>,
+
+    #[account(
+        mut,
+        seeds = [b"operator", authority.key().as_ref()],
+        bump,
+        has_one = authority,
+    )]
+    pub operator: Account<'info, OperatorAccount>,
+
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CommitAuditRoot<'info> {
+    #[account(
+        mut,
+        seeds = [b"operator", authority.key().as_ref()],
+        bump,
+        has_one = authority,
+    )]
+    pub operator: Account<'info, OperatorAccount>,
+
+    pub authority: Signer<'info>,
+}
+
 // ─── Events ────────────────────────────────────────────────────────
 
 #[event]
@@ -162,6 +322,48 @@ pub struct AgentRegistered {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct PolicyUpdated {
+    pub agent: Pubkey,
+    pub old_commitment: [u8; 32],
+    pub new_commitment: [u8; 32],
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AgentPaused {
+    pub agent: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AgentUnpaused {
+    pub agent: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AgentRevoked {
+    pub operator: Pubkey,
+    pub agent: Pubkey,
+    pub reason_code: u8,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AgentArchived {
+    pub agent: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AuditRootCommitted {
+    pub operator: Pubkey,
+    pub merkle_root: [u8; 32],
+    pub period_start: i64,
+    pub period_end: i64,
+}
+
 // ─── Errors ────────────────────────────────────────────────────────
 
 #[error_code]
@@ -170,6 +372,14 @@ pub enum AltheiaError {
     InvalidFramework,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Invalid status transition for current agent state")]
+    InvalidStatusTransition,
+    #[msg("Caller is not authorized to operate on this agent")]
+    Unauthorized,
+    #[msg("Audit period must satisfy start < end")]
+    InvalidPeriod,
+    #[msg("Audit period_end cannot be in the future")]
+    FuturePeriod,
 }
 
 // Make authority field accessible for `has_one` constraint

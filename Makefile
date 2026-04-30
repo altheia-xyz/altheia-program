@@ -9,8 +9,8 @@ image: ## build the anchor docker image
 build: ## anchor build (compiles the program inside docker)
 	docker compose run --rm anchor anchor build
 
-test: ## anchor test (spins validator inside docker, runs integration tests)
-	docker compose run --rm anchor anchor test
+test: ## bankrun integration tests (in-process, no validator, runs on any cpu)
+	pnpm test
 
 validator: ## run a long-running solana-test-validator on :8899
 	docker compose up -d validator
