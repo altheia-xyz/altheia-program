@@ -7,7 +7,7 @@ import { expect } from "chai";
 import { randomBytes, createHash } from "crypto";
 
 const PROGRAM_ID = new anchor.web3.PublicKey(
-  "8PpLVbZzuXsp4GmJoLfd8aMdbZHkvQjh8sA3FmPx2fbv"
+  "AkKx54ZmuP17r1sXsKr7mxe3dXJ5RMqsSH2zf8QGZ39C"
 );
 
 describe("identity", () => {

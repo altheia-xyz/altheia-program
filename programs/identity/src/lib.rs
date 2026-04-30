@@ -8,7 +8,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("8PpLVbZzuXsp4GmJoLfd8aMdbZHkvQjh8sA3FmPx2fbv");
+declare_id!("AkKx54ZmuP17r1sXsKr7mxe3dXJ5RMqsSH2zf8QGZ39C");
 
 #[program]
 pub mod identity {
