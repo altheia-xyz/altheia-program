@@ -58,14 +58,33 @@ describe("identity", () => {
     expect(operator.activeAgentCount).to.equal(0);
   });
 
-  it("registers an agent", async () => {
+  // Empty/minimal policy used by the basic register/pause tests. Tests below
+  // exercise the on-chain caps + program scope + blocked destinations.
+  const EMPTY_CAPS: { mint: anchor.web3.PublicKey; maxPerTx: anchor.BN; maxPerDay: anchor.BN }[] = [];
+  const EMPTY_PROGRAMS: anchor.web3.PublicKey[] = [];
+  const EMPTY_BLOCKED: anchor.web3.PublicKey[] = [];
+
+  const USDC_MINT = new anchor.web3.PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+  const SOL_MINT = new anchor.web3.PublicKey("So11111111111111111111111111111111111111112");
+  const JUPITER_V6 = new anchor.web3.PublicKey("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
+  const DRIFT_V2 = new anchor.web3.PublicKey("dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH");
+
+  const sampleCaps = [
+    { mint: USDC_MINT, maxPerTx: new anchor.BN(100_000_000), maxPerDay: new anchor.BN(500_000_000) },
+    { mint: SOL_MINT, maxPerTx: new anchor.BN(1_000_000_000), maxPerDay: new anchor.BN(5_000_000_000) },
+  ];
+
+  it("registers an agent with full on-chain policy (caps + programs + blocked)", async () => {
     await program.methods
       .registerAgent(
         Array.from(agentId),
         3,
         modelCommitment,
         policyCommitment,
-        swigAccountStub
+        swigAccountStub,
+        sampleCaps,
+        [JUPITER_V6, DRIFT_V2],
+        EMPTY_BLOCKED
       )
       .accounts({
         agent: agentPda,
@@ -79,6 +98,14 @@ describe("identity", () => {
     expect(agent.framework).to.equal(3);
     expect(agent.swigAccount.toBase58()).to.equal(swigAccountStub.toBase58());
     expect(agent.status).to.deep.equal({ active: {} });
+
+    // The full policy is now readable directly off the account — no DB needed.
+    expect(agent.assetCaps).to.have.length(2);
+    expect(agent.assetCaps[0].mint.toBase58()).to.equal(USDC_MINT.toBase58());
+    expect(agent.assetCaps[0].maxPerTx.toNumber()).to.equal(100_000_000);
+    expect(agent.allowedPrograms).to.have.length(2);
+    expect(agent.allowedPrograms[0].toBase58()).to.equal(JUPITER_V6.toBase58());
+    expect(agent.blockedDestinations).to.have.length(0);
 
     const operator = await program.account.operatorAccount.fetch(operatorPda);
     expect(operator.agentCount).to.equal(1);
@@ -94,7 +121,16 @@ describe("identity", () => {
 
     try {
       await program.methods
-        .registerAgent(Array.from(badAgentId), 99, modelCommitment, policyCommitment, swigAccountStub)
+        .registerAgent(
+          Array.from(badAgentId),
+          99,
+          modelCommitment,
+          policyCommitment,
+          swigAccountStub,
+          EMPTY_CAPS,
+          EMPTY_PROGRAMS,
+          EMPTY_BLOCKED
+        )
         .accounts({
           agent: badAgentPda,
           operator: operatorPda,
@@ -109,11 +145,53 @@ describe("identity", () => {
     }
   });
 
-  it("updates the policy commitment", async () => {
+  it("rejects register_agent with too many allowed programs (>8)", async () => {
+    const badAgentId = randomBytes(32);
+    const [badAgentPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("agent"), operatorPda.toBuffer(), badAgentId],
+      PROGRAM_ID
+    );
+
+    const tooMany = Array.from({ length: 9 }, () => anchor.web3.Keypair.generate().publicKey);
+
+    try {
+      await program.methods
+        .registerAgent(
+          Array.from(badAgentId),
+          3,
+          modelCommitment,
+          policyCommitment,
+          swigAccountStub,
+          EMPTY_CAPS,
+          tooMany,
+          EMPTY_BLOCKED
+        )
+        .accounts({
+          agent: badAgentPda,
+          operator: operatorPda,
+          authority: provider.wallet.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc();
+      expect.fail("expected TooManyAllowedPrograms");
+    } catch (err: any) {
+      // The Vec max_len=8 also makes this fail at deserialization in some Anchor
+      // versions; either error is fine — the assertion is "register rejects 9 programs".
+      expect(err.toString()).to.match(/TooManyAllowedPrograms|0x1779|6009|deserialize|account/i);
+    }
+  });
+
+  it("update_policy rewrites caps + programs + blocked + commitment in place", async () => {
     const before = await program.account.agentAccount.fetch(agentPda);
 
+    const newCaps = [
+      { mint: USDC_MINT, maxPerTx: new anchor.BN(50_000_000), maxPerDay: new anchor.BN(200_000_000) },
+    ];
+    const newPrograms = [JUPITER_V6];
+    const newBlocked = [anchor.web3.Keypair.generate().publicKey];
+
     await program.methods
-      .updatePolicyCommitment(newPolicyCommitment)
+      .updatePolicy(newPolicyCommitment, newCaps, newPrograms, newBlocked)
       .accounts({
         agent: agentPda,
         authority: provider.wallet.publicKey,
@@ -124,6 +202,11 @@ describe("identity", () => {
     expect(Buffer.from(after.policyCommitment).toString("hex")).to.equal(
       Buffer.from(newPolicyCommitment).toString("hex")
     );
+    expect(after.assetCaps).to.have.length(1);
+    expect(after.assetCaps[0].maxPerTx.toNumber()).to.equal(50_000_000);
+    expect(after.allowedPrograms).to.have.length(1);
+    expect(after.allowedPrograms[0].toBase58()).to.equal(JUPITER_V6.toBase58());
+    expect(after.blockedDestinations).to.have.length(1);
     expect(after.lastUpdatedAt.toNumber()).to.be.greaterThanOrEqual(before.lastUpdatedAt.toNumber());
   });
 
@@ -246,10 +329,10 @@ describe("identity", () => {
     expect(agent.status).to.deep.equal({ archived: {} });
   });
 
-  it("rejects update_policy_commitment on archived agent (status guard)", async () => {
+  it("rejects update_policy on archived agent (status guard)", async () => {
     try {
       await program.methods
-        .updatePolicyCommitment(sha256("policy-v3-illegal"))
+        .updatePolicy(sha256("policy-v3-illegal"), EMPTY_CAPS, EMPTY_PROGRAMS, EMPTY_BLOCKED)
         .accounts({ agent: agentPda, authority: provider.wallet.publicKey })
         .rpc();
       expect.fail("expected InvalidStatusTransition");

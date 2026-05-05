@@ -26,7 +26,11 @@ pub mod identity {
         Ok(())
     }
 
-    /// Register a new agent under the calling operator.
+    /// Register a new agent under the calling operator. Policy is stored
+    /// in full on-chain — caller passes structured caps + program scope +
+    /// blocked destinations. The off-chain `policy_commitment` hash is
+    /// retained as a tamper-evidence aid (chain attests both plaintext +
+    /// hash, anyone can verify hash(plaintext) == commitment).
     pub fn register_agent(
         ctx: Context<RegisterAgent>,
         agent_id: [u8; 32],
@@ -34,8 +38,14 @@ pub mod identity {
         model_commitment: [u8; 32],
         policy_commitment: [u8; 32],
         swig_account: Pubkey,
+        asset_caps: Vec<TokenCap>,
+        allowed_programs: Vec<Pubkey>,
+        blocked_destinations: Vec<Pubkey>,
     ) -> Result<()> {
         require!(framework < 6, AltheiaError::InvalidFramework);
+        require!(asset_caps.len() <= 4, AltheiaError::TooManyAssetCaps);
+        require!(allowed_programs.len() <= 8, AltheiaError::TooManyAllowedPrograms);
+        require!(blocked_destinations.len() <= 4, AltheiaError::TooManyBlockedDestinations);
 
         let agent = &mut ctx.accounts.agent;
         let operator = &mut ctx.accounts.operator;
@@ -50,6 +60,9 @@ pub mod identity {
         agent.last_updated_at = agent.created_at;
         agent.status = AgentStatus::Active;
         agent.revoked_at = None;
+        agent.asset_caps = asset_caps;
+        agent.allowed_programs = allowed_programs;
+        agent.blocked_destinations = blocked_destinations;
 
         operator.agent_count = operator.agent_count.checked_add(1).ok_or(AltheiaError::Overflow)?;
         operator.active_agent_count = operator.active_agent_count.checked_add(1).ok_or(AltheiaError::Overflow)?;
@@ -65,10 +78,22 @@ pub mod identity {
         Ok(())
     }
 
-    pub fn update_policy_commitment(
+    /// Update the full on-chain policy: caps, allowed programs, blocked
+    /// destinations, and the convenience hash. Since AgentAccount is
+    /// allocated at max size at registration (Vec<T, max_len=N> reserves
+    /// the worst-case bytes), this requires no realloc — we just rewrite
+    /// the Vec contents within the existing allocation.
+    pub fn update_policy(
         ctx: Context<ManageAgent>,
         new_policy_commitment: [u8; 32],
+        new_asset_caps: Vec<TokenCap>,
+        new_allowed_programs: Vec<Pubkey>,
+        new_blocked_destinations: Vec<Pubkey>,
     ) -> Result<()> {
+        require!(new_asset_caps.len() <= 4, AltheiaError::TooManyAssetCaps);
+        require!(new_allowed_programs.len() <= 8, AltheiaError::TooManyAllowedPrograms);
+        require!(new_blocked_destinations.len() <= 4, AltheiaError::TooManyBlockedDestinations);
+
         let agent = &mut ctx.accounts.agent;
         require!(
             agent.status == AgentStatus::Active || agent.status == AgentStatus::Paused,
@@ -76,6 +101,9 @@ pub mod identity {
         );
         let old = agent.policy_commitment;
         agent.policy_commitment = new_policy_commitment;
+        agent.asset_caps = new_asset_caps;
+        agent.allowed_programs = new_allowed_programs;
+        agent.blocked_destinations = new_blocked_destinations;
         agent.last_updated_at = Clock::get()?.unix_timestamp;
 
         emit!(PolicyUpdated {
@@ -207,12 +235,31 @@ pub struct AgentAccount {
     pub agent_id: [u8; 32],
     pub framework: u8,                   // 0=Eliza, 1=Virtuals, 2=Griffain, 3=SAK, 4=MCP, 5=Custom
     pub model_commitment: [u8; 32],
-    pub policy_commitment: [u8; 32],
+    pub policy_commitment: [u8; 32],     // sha256(canonical(asset_caps + allowed_programs + blocked_destinations))
     pub swig_account: Pubkey,            // reference to operator's Swig smart account
     pub created_at: i64,
     pub last_updated_at: i64,
     pub status: AgentStatus,
     pub revoked_at: Option<i64>,
+
+    // ─── Full on-chain policy (replaces the old hash-only commitment) ───
+    // The AgentAccount now stores the literal policy. Anyone reading the
+    // account (Solscan, getAccountInfo, the SDK) sees exactly what the
+    // chain enforces. policy_commitment above is kept as a redundant
+    // tamper-evidence aid: hash(canonical(below)) MUST equal it.
+    #[max_len(4)]
+    pub asset_caps: Vec<TokenCap>,
+    #[max_len(8)]
+    pub allowed_programs: Vec<Pubkey>,
+    #[max_len(4)]
+    pub blocked_destinations: Vec<Pubkey>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TokenCap {
+    pub mint: Pubkey,                    // SPL mint (or wrapped-SOL sentinel So111…112)
+    pub max_per_tx: u64,                 // smallest unit of the token (lamports / micro-USDC)
+    pub max_per_day: u64,                // smallest unit of the token
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, PartialEq, Eq)]
@@ -380,6 +427,12 @@ pub enum AltheiaError {
     InvalidPeriod,
     #[msg("Audit period_end cannot be in the future")]
     FuturePeriod,
+    #[msg("Too many asset caps (max 4 per agent)")]
+    TooManyAssetCaps,
+    #[msg("Too many allowed programs (max 8 per agent)")]
+    TooManyAllowedPrograms,
+    #[msg("Too many blocked destinations (max 4 per agent)")]
+    TooManyBlockedDestinations,
 }
 
 // Make authority field accessible for `has_one` constraint
