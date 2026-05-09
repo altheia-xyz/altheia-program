@@ -23,3 +23,6 @@ test-ledger/
 # Wallets / keys (paranoid; never commit keys)
 *-keypair.json
 target/deploy/*-keypair.json
+
+# Karpathy per-repo guidelines (local, not for git)
+CLAUDE.md
