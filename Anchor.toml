@@ -12,6 +12,9 @@ identity = "AkKx54ZmuP17r1sXsKr7mxe3dXJ5RMqsSH2zf8QGZ39C"
 [programs.devnet]
 identity = "AkKx54ZmuP17r1sXsKr7mxe3dXJ5RMqsSH2zf8QGZ39C"
 
+[programs.mainnet]
+identity = "AkKx54ZmuP17r1sXsKr7mxe3dXJ5RMqsSH2zf8QGZ39C"
+
 [registry]
 url = "https://api.apr.dev"
 
